@@ -69,9 +69,27 @@ def get_celeb_a32():
     data = data.batch(int(tf.data.experimental.cardinality(data)))
     return data
 
+def get_ood_data(dataset_name):
+    print("Getting OOD Dataset...")
+    OOD_LABEL = 0
+    data = tfds.load(name="mnist", batch_size=-1, data_dir="data", shuffle_files=False)
+    
+    mask = data["train"]["label"] != OOD_LABEL
+    inlier_train = tf.data.Dataset.from_tensor_slices(data["train"]["image"][mask])
+    
+    mask = data["test"]["label"] != OOD_LABEL
+    inlier_test = tf.data.Dataset.from_tensor_slices(data["test"]["image"][mask])
+
+    inlier_train = preprocess("mnist", inlier_train, train=True)
+    inlier_test = preprocess("mnist", inlier_test, train=False)
+
+    return inlier_train, inlier_test 
 
 def get_train_test_data(dataset_name):
-    if dataset_name != 'celeb_a':
+
+    if dataset_name == 'mnist_ood':
+        train,test = get_ood_data(dataset_name)
+    elif dataset_name != 'celeb_a':
         train, test = load_data(dataset_name)
         train = preprocess(dataset_name, train, train=True)
         test = preprocess(dataset_name, test, train=False)

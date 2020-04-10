@@ -9,6 +9,7 @@ from model.refinenet import RefineNet, RefineNetTwoResidual
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    'mnist_ood': (28, 28, 1),
     'mnist': (28, 28, 1),
     'cifar10': (32, 32, 3),
     'celeb_a': (32, 32, 3)
@@ -90,7 +91,7 @@ def get_tensorflow_device():
 def get_savemodel_dir():
     models_dir = configs.config_values.checkpoint_dir
     model_name = configs.config_values.model
-
+    
     # Folder name: model_name+filters+dataset+L
     if not configs.config_values.model == 'baseline':
         complete_model_name = '{}{}_{}_L{}'.format(model_name, configs.config_values.filters,
