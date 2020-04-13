@@ -9,6 +9,7 @@ from model.refinenet import RefineNet, RefineNetTwoResidual
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    'fashion_mnist': (28, 28, 1),
     'mnist_ood': (28, 28, 1),
     'mnist': (28, 28, 1),
     'cifar10': (32, 32, 3),

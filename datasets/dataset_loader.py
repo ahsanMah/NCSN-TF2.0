@@ -80,15 +80,19 @@ def get_ood_data(dataset_name):
     mask = data["test"]["label"] != OOD_LABEL
     inlier_test = tf.data.Dataset.from_tensor_slices(data["test"]["image"][mask])
 
+    mask = data["test"]["label"] == OOD_LABEL
+    ood_test = tf.data.Dataset.from_tensor_slices(data["test"]["image"][mask])
+
     inlier_train = preprocess("mnist", inlier_train, train=True)
     inlier_test = preprocess("mnist", inlier_test, train=False)
+    ood_test = preprocess("mnist", ood_test, train=False)
 
-    return inlier_train, inlier_test 
+    return inlier_train, inlier_test, ood_test
 
 def get_train_test_data(dataset_name):
 
     if dataset_name == 'mnist_ood':
-        train,test = get_ood_data(dataset_name)
+        train,test,_ = get_ood_data(dataset_name)
     elif dataset_name != 'celeb_a':
         train, test = load_data(dataset_name)
         train = preprocess(dataset_name, train, train=True)
