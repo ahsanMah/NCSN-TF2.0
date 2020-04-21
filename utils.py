@@ -95,8 +95,11 @@ def get_savemodel_dir():
     
     # Folder name: model_name+filters+dataset+L
     if not configs.config_values.model == 'baseline':
-        complete_model_name = '{}{}_{}_L{}'.format(model_name, configs.config_values.filters,
-                                                   configs.config_values.dataset, configs.config_values.num_L)
+        complete_model_name = '{}{}_{}_L{}_SH{:.0e}_SL{:.0e}'.format(model_name, configs.config_values.filters,
+                                                   configs.config_values.dataset, configs.config_values.num_L,
+                                                   configs.config_values.sigma_high,
+                                                   configs.config_values.sigma_low
+                                                   )
     else:
         complete_model_name = '{}{}_{}'.format(model_name, configs.config_values.filters, configs.config_values.dataset)
     folder_name = models_dir + complete_model_name + '/'
