@@ -103,7 +103,7 @@ def get_savemodel_dir():
                                                    configs.config_values.sigma_low
                                                    )
     else:
-        complete_model_name = '{}{}_{}'.format(model_name, configs.config_values.filters, configs.config_values.dataset)
+        complete_model_name = '{}{}_{}_SL{:.0e}'.format(model_name, configs.config_values.filters, configs.config_values.dataset,configs.config_values.sigma_low)
     folder_name = models_dir + complete_model_name + '/'
     return folder_name, complete_model_name
 
