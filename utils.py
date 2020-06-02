@@ -71,6 +71,8 @@ def get_command_line_args():
                         help='number of nearest neighbours to find from data (default: 10)')
     parser.add_argument('--eval_setting', default="sample", type=str,
                         help="can be \'sample\' or \'fid\' (default: sample)")
+    parser.add_argument('--ocnn', action='store_true',
+                        help="whether to attach an ocnn to the model (default: False)")
 
     parser = parser.parse_args()
 
@@ -114,8 +116,11 @@ def evaluate_print_model_summary(model, verbose=True):
     if verbose:
         print(model.summary())
 
+def attach_ocnn(top=True, encoding=False):
+    pass
 
-def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True):
+
+def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, ocnn=False):
     """
     Tries to load a model from the provided directory, otherwise returns a new initialized model.
     :param save_dir: directory with checkpoints
@@ -123,6 +128,9 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True):
     :param verbose: true for printing the model summary
     :return:
     """
+    ocnn_model=None
+    ocnn_optimizer=None
+
     import tensorflow as tf
     tf.compat.v1.enable_v2_behavior()
     if configs.config_values.model == 'baseline':
@@ -139,6 +147,21 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True):
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=configs.config_values.learning_rate)
     step = 0
+
+    if ocnn:
+        from tensorflow.keras import Model
+        from tensorflow.keras.layers import Input, Flatten, Dense, AvgPool2D
+        # Building OCNN on top
+        print("Building OCNN...")
+        Input = [Input(name="images", shape=(28,28,1)),
+                Input(name="idx_sigmas", shape=(), dtype=tf.int32)]
+
+        score_logits = model(Input)
+        x = Flatten()(score_logits)
+        x = Dense(128, activation="linear", name="embedding")(x)
+        dist = Dense(1, activation="linear", name="distance")(x)
+        ocnn_model = Model(inputs=Input, outputs=dist, name="OC-NN")
+        ocnn_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
 
     # if resuming training, overwrite model parameters from checkpoint
     if configs.config_values.resume:
@@ -166,12 +189,19 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True):
             step = tf.Variable(0)
             ckpt = tf.train.Checkpoint(step=step, optimizer=optimizer, model=model)
             ckpt.restore(checkpoint)
+
+            if ocnn:
+                ckpt = tf.train.Checkpoint(ocnn_model=ocnn_model, ocnn_optimizer=ocnn_optimizer)
+                ckpt.restore(checkpoint)
+            
             step = int(step)
             print("Loaded model: " + checkpoint)
 
     evaluate_print_model_summary(model, verbose)
+    if ocnn:
+        evaluate_print_model_summary(ocnn_model, verbose=True)
 
-    return model, optimizer, step
+    return model, optimizer, step, ocnn_model, ocnn_optimizer
 
 
 def get_sigma_levels():
