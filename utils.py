@@ -147,7 +147,8 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=configs.config_values.learning_rate)
     step = 0
-
+    evaluate_print_model_summary(model, verbose)
+    
     if ocnn:
         from tensorflow.keras import Model
         from tensorflow.keras.layers import Input, Flatten, Dense, AvgPool2D
@@ -162,6 +163,7 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
         dist = Dense(1, activation="linear", name="distance")(x)
         ocnn_model = Model(inputs=Input, outputs=dist, name="OC-NN")
         ocnn_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
+        evaluate_print_model_summary(ocnn_model, verbose=True)
 
     # if resuming training, overwrite model parameters from checkpoint
     if configs.config_values.resume:
@@ -196,10 +198,6 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
             
             step = int(step)
             print("Loaded model: " + checkpoint)
-
-    evaluate_print_model_summary(model, verbose)
-    if ocnn:
-        evaluate_print_model_summary(ocnn_model, verbose=True)
 
     return model, optimizer, step, ocnn_model, ocnn_optimizer
 

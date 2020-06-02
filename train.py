@@ -47,7 +47,7 @@ def main():
     train_data = train_data.repeat()
     train_data = train_data.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-    # Just a largegr batch size of the same dataset
+    # Just a larger batch size of the same dataset
     ocnn_batch_size = configs.config_values.batch_size*4
     ocnn_data =  get_train_test_data(configs.config_values.dataset)[0]
     # ocnn_data = ocnn_data.cache()
@@ -73,8 +73,8 @@ def main():
     progress_bar.set_description('current loss ?')
 
     steps_per_epoch = 60000 // configs.config_values.batch_size
-    ocnn_freq = 1 #25 * steps_per_epoch # Every 25 epochs
-    ocnn_steps_per_epoch = 1 #60000 // ocnn_batch_size
+    ocnn_freq = 25 * steps_per_epoch # Every 25 epochs
+    ocnn_steps_per_epoch = 60000 // ocnn_batch_size
 
     radius = 1.0
     loss_history = []
@@ -127,5 +127,3 @@ def main():
                 avg_loss = 0
             if step == total_steps:
                 return
-
-            break
