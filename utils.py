@@ -5,10 +5,11 @@ import re
 import tensorflow as tf
 
 import configs
-from model.refinenet import RefineNet, RefineNetTwoResidual
+from model.refinenet import RefineNet, RefineNetTwoResidual, MaskedRefineNet
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    'masked_fashion': (28, 28, 2),
     'fashion_mnist': (28, 28, 1),
     'mnist_ood': (28, 28, 1),
     'mnist': (28, 28, 1),
@@ -29,7 +30,7 @@ def get_dataset_image_size(dataset_name):
 
 
 def check_args_validity(args):
-    assert args.model in ["baseline", "resnet", "refinenet", "refinenet_twores"]
+    assert args.model in ["baseline", "resnet", "refinenet", "refinenet_twores", "masked_refinenet"]
 
 
 def get_command_line_args():
@@ -144,7 +145,10 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
         model = RefineNet(filters=configs.config_values.filters, activation=tf.nn.elu)
     elif model_name == 'refinenet_twores':
         model = RefineNetTwoResidual(filters=configs.config_values.filters, activation=tf.nn.elu)
-
+    elif model_name == 'masked_refinenet':
+        print("Using Masked RefineNet...")
+        model = MaskedRefineNet(filters=configs.config_values.filters, activation=tf.nn.elu)
+    
     optimizer = tf.keras.optimizers.Adam(learning_rate=configs.config_values.learning_rate)
     step = 0
     evaluate_print_model_summary(model, verbose)
