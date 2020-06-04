@@ -98,7 +98,7 @@ def main():
 
             avg_loss += current_loss
 
-            if step % ocnn_freq == 0:
+            if configs.config_values.ocnn and step % ocnn_freq == 0:
                 for i in range(ocnn_steps_per_epoch):
                     data_batch = next(iter(ocnn_data))
                     best_idx_sigmas = tf.ones([data_batch.shape[0]],
@@ -113,8 +113,12 @@ def main():
 
             if step % configs.config_values.checkpoint_freq == 0:
                 # Save checkpoint
-                ckpt = tf.train.Checkpoint(step=tf.Variable(0), optimizer=optimizer, model=model,
+                ckpt = None
+                if configs.config_values.ocnn:
+                    ckpt = tf.train.Checkpoint(step=tf.Variable(0), optimizer=optimizer, model=model,
                                            ocnn_model=ocnn_model, ocnn_optmizer=ocnn_optimizer)
+                else:
+                    ckpt = tf.train.Checkpoint(step=tf.Variable(0), optimizer=optimizer, model=model)
                 ckpt.step.assign_add(step)
                 ckpt.save(save_dir + "/{}_step_{}".format(start_time, step))
                 # Append in csv file
