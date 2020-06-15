@@ -9,6 +9,7 @@ from model.refinenet import RefineNet, RefineNetTwoResidual, MaskedRefineNet
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    "blown_fashion": (56, 56, 1),
     'masked_fashion': (28, 28, 2),
     'fashion_mnist': (28, 28, 1),
     'mnist_ood': (28, 28, 1),
@@ -32,8 +33,7 @@ def get_dataset_image_size(dataset_name):
 def check_args_validity(args):
     assert args.model in ["baseline", "resnet", "refinenet", "refinenet_twores", "masked_refinenet"]
 
-
-def get_command_line_args():
+def _build_parser():
     parser = argparse.ArgumentParser(description='I AM A HELP MESSAGE')
     parser.add_argument('--experiment', default='train', help="what experiment to run (default: train)")
     parser.add_argument('--dataset', default='mnist',
@@ -74,6 +74,11 @@ def get_command_line_args():
                         help="can be \'sample\' or \'fid\' (default: sample)")
     parser.add_argument('--ocnn', action='store_true',
                         help="whether to attach an ocnn to the model (default: False)")
+    
+    return parser
+
+def get_command_line_args():
+    parser = _build_parser()
 
     parser = parser.parse_args()
 
@@ -112,6 +117,7 @@ def get_savemodel_dir():
 def evaluate_print_model_summary(model, verbose=True):
     batch = 1
     input_shape = (batch,) + get_dataset_image_size(configs.config_values.dataset)
+    print(input_shape)
     x = [tf.ones(shape=input_shape), tf.ones(batch, dtype=tf.int32)]
     model(x)
     if verbose:
@@ -193,13 +199,14 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
                 step = None
         else:
             step = tf.Variable(0)
-            ckpt = tf.train.Checkpoint(step=step, optimizer=optimizer, model=model)
-            ckpt.restore(checkpoint)
 
             if ocnn:
-                ckpt = tf.train.Checkpoint(ocnn_model=ocnn_model, ocnn_optimizer=ocnn_optimizer)
-                ckpt.restore(checkpoint)
-            
+                ckpt = tf.train.Checkpoint(step=step, optimizer=optimizer, model=model,
+                ocnn_model=ocnn_model, ocnn_optimizer=ocnn_optimizer)
+            else:
+                 ckpt = tf.train.Checkpoint(step=step, optimizer=optimizer, model=model)
+
+            ckpt.restore(checkpoint)
             step = int(step)
             print("Loaded model: " + checkpoint)
 
