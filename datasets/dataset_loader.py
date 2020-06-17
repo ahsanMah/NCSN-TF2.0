@@ -12,7 +12,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 def load_data(dataset_name):
     # load data from tfds
 
-    if dataset_name in ["masked_fashion", "blown_fashion"]:
+    if dataset_name in ["masked_fashion", "blown_fashion", "blown_masked_fashion"]:
         dataset_name="fashion_mnist"
 
     data_generators = tfds.load(name=dataset_name, batch_size=-1, data_dir="data", shuffle_files=False)
@@ -27,17 +27,19 @@ def load_data(dataset_name):
 
 def preprocess(dataset_name, data, train=True):
     data = data.map(lambda x: x / 255, num_parallel_calls=AUTOTUNE)  # rescale [0,255] -> [0,1]
-    if dataset_name == "masked_fashion":
-        data = data.map(lambda x: tf.concat(
-                (x, tf.cast(x>0, dtype=tf.float32)),
-                axis=-1)
-            )
-    if dataset_name == "blown_fashion":
+    
+    if dataset_name in ["blown_fashion", "blown_masked_fashion"]:
         data = data.map(lambda x: tf.image.pad_to_bounding_box(
                 x, offset_height=14, offset_width=14,
                 target_height=56, target_width=56
             ))
 
+    if dataset_name in ["masked_fashion", "blown_masked_fashion"]:
+        data = data.map(lambda x: tf.concat(
+                (x, tf.cast(x>0, dtype=tf.float32)),
+                axis=-1)
+            )
+    
     if train and dataset_name in ["cifar10"]:
         data = data.map(lambda x: tf.image.random_flip_left_right(x),
                         num_parallel_calls=AUTOTUNE)  # randomly flip along the vertical axis

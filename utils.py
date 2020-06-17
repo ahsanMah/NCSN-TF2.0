@@ -10,6 +10,7 @@ from model.resnet import ResNet
 
 dict_datasets_image_size = {
     "blown_fashion": (56, 56, 1),
+    "blown_masked_fashion": (56, 56, 2),
     'masked_fashion': (28, 28, 2),
     'fashion_mnist': (28, 28, 1),
     'mnist_ood': (28, 28, 1),
