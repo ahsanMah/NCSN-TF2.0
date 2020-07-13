@@ -1,14 +1,20 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+@tf.function(experimental_compile=True)
+def normalized_dsm_loss(score, x_perturbed, x, sigmas, masks):
+    target = (x_perturbed - x) / (tf.square(sigmas))
+    loss = 0.5 * tf.reduce_sum(tf.square(score+target), axis=[1,2,3], keepdims=True) * tf.square(sigmas)
+    loss /= tf.reduce_sum(masks, axis=[1,2], keepdims=True)
+    loss = tf.reduce_mean(loss)
+    return loss
 
-@tf.function
+@tf.function(experimental_compile=True)
 def dsm_loss(score, x_perturbed, x, sigmas):
     target = (x_perturbed - x) / (tf.square(sigmas))
     loss = 0.5 * tf.reduce_sum(tf.square(score+target), axis=[1,2,3], keepdims=True) * tf.square(sigmas)
     loss = tf.reduce_mean(loss)
     return loss
-
 
 @tf.function
 def ssm_loss(score_net, data_batch):

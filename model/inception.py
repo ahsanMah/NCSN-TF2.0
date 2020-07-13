@@ -34,7 +34,7 @@ class Metrics:
 
     def compute_mu_sigma(self, images, batch_size=128, image_side_inception=299):
         activations = self._compute_activations(images, batch_size, image_side_inception)
-        mean, sigma = np.mean(activations, axis=0), np.conv(activations, rowvar=False)
+        mean, sigma = np.mean(activations, axis=0), np.cov(activations, rowvar=False)
         return mean, sigma
 
     def compute_fid(self, images_1=None, data_1=None, images_2=None, data_2=None, batch_size=128,
@@ -126,8 +126,8 @@ def _preprocess_dataset_inception(input_size, images=None, data=None, batch_size
     if data is None:
         data = tf.data.Dataset.from_tensor_slices(images)
     data = data.map(lambda x: tf.image.resize(x, input_size))
-    if data.output_shapes[-1] == 1:  # If it's grayscale, duplicate to get 3 channels
-        data = data.map(lambda x: tf.tile(x, [1, 1, 3]))
+    # if data.output_shapes[-1] == 1:  # If it's grayscale, duplicate to get 3 channels
+    #     data = data.map(lambda x: tf.tile(x, [1, 1, 3]))
     # data = data.map(lambda x: x / 255)
     data = data.batch(batch_size)
     return data

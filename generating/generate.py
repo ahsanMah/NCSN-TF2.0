@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import configs
 import utils
+from datasets.dataset_loader import get_train_test_data
 
 
 def clamped(x):
@@ -43,6 +44,11 @@ def save_as_grid(images, filename, spacing=2, rows=None):
     # Init image
     grid_cols = rows * height + (rows + 1) * spacing
     grid_rows = cols * width + (cols + 1) * spacing
+
+    if channels == 2:
+        images, masks = tf.split(images, 2, axis=-1)
+        channels=1
+
     mode = 'LA' if channels == 1 else "RGB"
     im = Image.new(mode, (grid_rows, grid_cols))
     for i in range(n_images):
@@ -174,20 +180,30 @@ def sample_and_save(model, sigmas, x=None, eps=2 * 1e-5, T=100, n_images=1, save
         image_size = x.shape
         n_images = image_size[0]
 
+    # Use ground truth masks
+    if (configs.config_values.dataset == "masked_fashion"):
+        print("Using groundtruth masks...")
+        x = x.numpy()
+        fashion_test = get_train_test_data("masked_fashion")[1]
+        fashion_test = fashion_test.batch(n_images).take(1)
+        f_samples = next(iter(fashion_test)).numpy()
+        x[...,-1] = f_samples[...,-1]
+        x = tf.constant(x)
+
     for i, sigma_i in enumerate(tqdm(sigmas, desc='Sampling for each sigma')):
         alpha_i = eps * (sigma_i / sigmas[-1]) ** 2
         idx_sigmas = tf.ones(n_images, dtype=tf.int32) * i
         for t in range(T):
             x = sample_one_step(model, x, idx_sigmas, alpha_i)
 
-            if (t + 1) % 10 == 0:
+            if (t + 1) % T == 0:
                 save_as_grid(x, save_directory + f'sigma{i + 1}_t{t + 1}.png')
     return x
 
 
 def main():
     save_dir, complete_model_name = utils.get_savemodel_dir()
-    model, optimizer, step = utils.try_load_model(save_dir, step_ckpt=configs.config_values.resume_from, verbose=True)
+    model, optimizer, step, _,_ = utils.try_load_model(save_dir, step_ckpt=configs.config_values.resume_from, verbose=True)
     start_time = datetime.now().strftime("%y%m%d-%H%M%S")
 
     sigma_levels = utils.get_sigma_levels()

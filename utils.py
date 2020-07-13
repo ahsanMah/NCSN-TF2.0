@@ -9,6 +9,11 @@ from model.refinenet import RefineNet, RefineNetTwoResidual, MaskedRefineNet
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    "brain": (91,109,1),
+    "masked_brain": (91,109,2),
+    "seg_brain": (91,109,8),
+    "pet" : (64,64,3),
+    "masked_pet" : (64,64,4),
     "blown_fashion": (56, 56, 1),
     "blown_masked_fashion": (56, 56, 2),
     'masked_fashion': (28, 28, 2),
@@ -16,7 +21,33 @@ dict_datasets_image_size = {
     'mnist_ood': (28, 28, 1),
     'mnist': (28, 28, 1),
     'cifar10': (32, 32, 3),
+    "masked_cifar10": (32,32,4),
+    "seg_cifar10": (32,32,14),
     'celeb_a': (32, 32, 3)
+}
+
+dict_train_size = {
+    "brain": 10500,
+    "masked_brain": 10500,
+    "seg_brain": 10500,
+    "masked_cifar10": 40000,
+    "seg_cifar10": 40000,
+    "pet" : 6500,
+    "masked_pet" : 6500,
+    "blown_fashion": 60000,
+    "blown_masked_fashion": 60000,
+    'masked_fashion': 60000,
+    'fashion_mnist': 60000,
+    'mnist_ood': 60000,
+    'mnist': 60000,
+}
+
+dict_splits = {
+    "masked_fashion": (1,1),
+    "masked_brain": (1,1),
+    "seg_brain": (1,7),
+    "masked_cifar10": (3,1),
+    "seg_cifar10": (3,11)
 }
 
 
@@ -33,6 +64,9 @@ def get_dataset_image_size(dataset_name):
 
 def check_args_validity(args):
     assert args.model in ["baseline", "resnet", "refinenet", "refinenet_twores", "masked_refinenet"]
+    if args.max_to_keep == -1:
+        args.max_to_keep = None
+    return
 
 def _build_parser():
     parser = argparse.ArgumentParser(description='I AM A HELP MESSAGE')
@@ -75,7 +109,11 @@ def _build_parser():
                         help="can be \'sample\' or \'fid\' (default: sample)")
     parser.add_argument('--ocnn', action='store_true',
                         help="whether to attach an ocnn to the model (default: False)")
-    
+    parser.add_argument('--y_cond', action='store_true',
+                        help="whether the model is conditioned on auxiallary y information (default: False)")
+    parser.add_argument('--max_to_keep', default=2, type=int,
+                        help="Number of checkopints to keep saved (default: 2)")
+
     return parser
 
 def get_command_line_args():
@@ -112,6 +150,10 @@ def get_savemodel_dir():
     else:
         complete_model_name = '{}{}_{}_SL{:.0e}'.format(model_name, configs.config_values.filters, configs.config_values.dataset,configs.config_values.sigma_low)
     folder_name = models_dir + complete_model_name + '/'
+    
+    if configs.config_values.ocnn:
+        folder_name += "ocnn/"
+    
     return folder_name, complete_model_name
 
 
@@ -144,18 +186,25 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
     if configs.config_values.model == 'baseline':
         configs.config_values.num_L = 1
 
+    splits=False
+    if configs.config_values.y_cond:
+        splits = dict_splits[configs.config_values.dataset]
+
     # initialize return values
     model_name = configs.config_values.model
     if model_name == 'resnet':
         model = ResNet(filters=configs.config_values.filters, activation=tf.nn.elu)
     elif model_name in ['refinenet', 'baseline']:
-        model = RefineNet(filters=configs.config_values.filters, activation=tf.nn.elu)
+        model = RefineNet(filters=configs.config_values.filters, activation=tf.nn.elu,
+        y_conditioned=configs.config_values.y_cond, splits=splits)
     elif model_name == 'refinenet_twores':
         model = RefineNetTwoResidual(filters=configs.config_values.filters, activation=tf.nn.elu)
     elif model_name == 'masked_refinenet':
         print("Using Masked RefineNet...")
-        model = MaskedRefineNet(filters=configs.config_values.filters, activation=tf.nn.elu)
-    
+        # assert configs.config_values.y_cond 
+        model = MaskedRefineNet(filters=configs.config_values.filters, activation=tf.nn.elu, 
+        splits=dict_splits[configs.config_values.dataset])
+
     optimizer = tf.keras.optimizers.Adam(learning_rate=configs.config_values.learning_rate)
     step = 0
     evaluate_print_model_summary(model, verbose)
