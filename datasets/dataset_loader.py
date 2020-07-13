@@ -20,6 +20,9 @@ def load_data(dataset_name):
     if dataset_name in ["masked_fashion", "blown_fashion", "blown_masked_fashion"]:
         dataset_name="fashion_mnist"
 
+    if dataset_name == "multiscale_cifar10":
+        dataset_name = "cifar10"
+
     if dataset_name in ["masked_cifar10", "seg_cifar10"]:
         with open("data/masked_cifar10/masked_cifar10_strict.p", "rb") as f:
             data = pickle.load(f)
@@ -122,6 +125,14 @@ def preproc_cifar_segs(x):
     return tf.concat((img,seg), axis=-1) # Shape = 32x32x(3+11)
 
 @tf.function
+def preproc_cifar_multiscale(x):
+    x = x/255
+    x_small_scale = tf.image.resize(x, (8,8), method="bilinear")
+    x_small_scale = tf.image.resize(x_small_scale, (32,32), method="nearest")
+   
+    return tf.concat((x,x_small_scale), axis=-1) # Shape = 32x32x(3+3)
+
+@tf.function
 def get_brain_only(x):
     img, mask,seg = tf.split(x, 3, axis=-1)
     img  = tf.expand_dims(img, axis=-1)
@@ -148,7 +159,8 @@ preproc_map = {
     "seg_brain": get_brain_segs,
     "seg_cifar10": preproc_cifar_segs,
     "masked_cifar10": preproc_cifar_masks,
-    "masked_pet": preproc_pet_masks
+    "multiscale_cifar10": preproc_cifar_multiscale,
+    "masked_pet": preproc_pet_masks,
 }
 
 def preprocess(dataset_name, data, train=True):
@@ -173,7 +185,7 @@ def preprocess(dataset_name, data, train=True):
     if dataset_name in ["masked_fashion", "blown_masked_fashion"]:
         data = data.map(concat_mask)
     
-    if train and dataset_name in ["cifar10", "masked_cifar10", "seg_cifar10", "pet", "masked_pet"]:
+    if train and dataset_name in ["multiscale_cifar10", "cifar10", "masked_cifar10", "seg_cifar10", "pet", "masked_pet"]:
         data = data.map(lambda x: tf.image.random_flip_left_right(x),
                         num_parallel_calls=AUTOTUNE)  # randomly flip along the vertical axis
 

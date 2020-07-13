@@ -23,6 +23,7 @@ dict_datasets_image_size = {
     'cifar10': (32, 32, 3),
     "masked_cifar10": (32,32,4),
     "seg_cifar10": (32,32,14),
+    "multiscale_cifar10": (32,32,6),
     'celeb_a': (32, 32, 3)
 }
 
@@ -32,6 +33,7 @@ dict_train_size = {
     "seg_brain": 10500,
     "masked_cifar10": 40000,
     "seg_cifar10": 40000,
+    "multiscale_cifar10":50000,
     "pet" : 6500,
     "masked_pet" : 6500,
     "blown_fashion": 60000,
@@ -47,7 +49,8 @@ dict_splits = {
     "masked_brain": (1,1),
     "seg_brain": (1,7),
     "masked_cifar10": (3,1),
-    "seg_cifar10": (3,11)
+    "seg_cifar10": (3,11),
+    "multiscale_cifar10": (3,3)
 }
 
 
