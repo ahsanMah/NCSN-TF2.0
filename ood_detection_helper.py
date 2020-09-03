@@ -16,10 +16,10 @@ def get_command_line_args(_args):
 
     utils.check_args_validity(parser)
 
-    print("=" * 20 + "\nParameters: \n")
-    for key in parser.__dict__:
-        print(key + ': ' + str(parser.__dict__[key]))
-    print("=" * 20 + "\n")
+    # print("=" * 20 + "\nParameters: \n")
+    # for key in parser.__dict__:
+    #     print(key + ': ' + str(parser.__dict__[key]))
+    # print("=" * 20 + "\n")
     return parser
 
 configs.config_values = get_command_line_args([])
@@ -85,3 +85,87 @@ def compute_scores(model, x_test):
         score_dict.append(tf.identity(_logits))
 
     return score_dict
+
+
+def ood_metrics(inlier_score, outlier_score, plot=False, verbose=False, 
+                names=["Inlier", "Outlier"]):
+    import numpy as np
+    import seaborn as sns
+    from sklearn.metrics import roc_curve
+    from sklearn.metrics import classification_report, average_precision_score
+    from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
+    
+
+    y_true = np.concatenate((np.zeros(len(inlier_score)),
+                             np.ones(len(outlier_score))))
+    y_scores = np.concatenate((inlier_score, outlier_score))
+    
+    prec_in, rec_in, _ = precision_recall_curve(y_true, y_scores)
+
+    # Outliers are treated as "positive" class 
+    # i.e label 1 is now label 0
+    prec_out, rec_out, _ = precision_recall_curve((y_true==0), -y_scores)
+
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=False)
+    tpr95_idx = np.where(np.isclose(tpr,0.95))[0][0]
+    tpr80_idx = np.where(np.isclose(tpr,0.8))[0][0]
+
+    metrics = dict(
+        roc_auc = roc_auc_score(y_true,y_scores),
+        fpr_tpr95 = fpr[tpr95_idx],
+        fpr_tpr80 = fpr[tpr80_idx],
+        pr_auc_in = auc(rec_in, prec_in),
+        pr_auc_out = auc(rec_out, prec_out),
+        ap = average_precision_score(y_true,y_scores)
+    )
+    
+    if plot:    
+    
+        fig, axs = plt.subplots(1,2, figsize=(16,4))
+        fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=True)
+        sns.lineplot(fpr, tpr, ax=axs[0])
+        axs[0].set(
+            xlabel="FPR", ylabel="TPR", title="ROC", ylim=(-0.05, 1.05)
+        )
+
+        sns.lineplot(rec_in, prec_in, ax=axs[1], label="PR-In")
+        sns.lineplot(rec_out, prec_out, ax=axs[1], label="PR-Out")
+        axs[1].set(
+            xlabel="Recall", ylabel="Precision", title="Precision-Recall", ylim=(-0.05, 1.05)
+        )
+        fig.suptitle("{} vs {}".format(*names), fontsize=20)
+        plt.show()
+        plt.close()
+    
+    if verbose:
+        print("{} vs {}".format(*names))
+        print("----------------")
+        print("ROC-AUC: {:.4f}".format(metrics["roc_auc"]))
+        print("PR-AUC (In/Out): {:.4f} / {:.4f}".format(metrics["pr_auc_in"], metrics["pr_auc_out"]))
+        print("FPR (95% TPR) Prec: {:.4f}".format(metrics["fpr_tpr95"]))
+        
+    return metrics
+
+
+def evaluate_model(train_score, test_score, outlier_score, outlier_score_2, labels):
+    fig, axs = plt.subplots(2,1, figsize=(16,8))
+    colors = ["red", "blue", "green", "orange"]
+
+    sns.distplot(train_score,color=colors[0], label="Training", ax=axs[0])
+    sns.distplot(test_score, color=colors[1], label=labels[1], ax=axs[0])
+    sns.distplot(outlier_score, color=colors[2], label=labels[2], ax=axs[0])
+    sns.distplot(outlier_score_2, color=colors[3], label=labels[3], ax=axs[0])
+
+    sns.distplot(test_score, color=colors[1], label=labels[1], ax=axs[1])
+    sns.distplot(outlier_score, color=colors[2], label=labels[2], ax=axs[1])
+
+    axs[0].legend()
+    axs[1].legend()
+    plt.show()
+    
+    ood_metrics(-test_score, -outlier_score_2, names=(labels[1], labels[3]),
+                plot=False, verbose=True)
+    print()
+    ood_metrics(-test_score, -outlier_score, names=(labels[1], labels[2]),
+                plot=False, verbose=True)
+    return
