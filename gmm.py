@@ -1,3 +1,6 @@
+import os, utils
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -5,7 +8,7 @@ import matplotlib.pyplot as plt
 from model.modelmlp import ModelMLP
 from tqdm import tqdm
 from losses.losses import ssm_loss
-import os, utils
+
 
 tfd = tfp.distributions
 
@@ -82,7 +85,7 @@ def visualize_gradients(x, grads, filename="gradients"):
     U, V = grads[:, :, 1], grads[:, :, 0]
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.quiver(x, x, U, V)
-    plt.gca().set_aspect('equal', adjustable='box')
+    plt.gca().set_aspect('equal', adjustable='box')     
     ax.set_xlabel(r'$x$')
     ax.set_ylabel(r'$y$')
     plt.savefig(f"{filename}.pdf", bbox_inches="tight")

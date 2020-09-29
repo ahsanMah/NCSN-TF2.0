@@ -15,6 +15,7 @@ from generating.generate import sample_many_and_save
 from model.inception import Metrics
 
 stat_files = {
+    "multiscale_cifar10": "./statistics/fid_stats_cifar10_train.npz",
     "cifar10": "./statistics/fid_stats_cifar10_train.npz",
     "celeb_a": "./statistics/fid_stats_celeb_a_train.npz"
 }
@@ -88,7 +89,7 @@ def main():
                     print("Removing existing samples that were not enough ({})".format(batch_FID))
                     shutil.rmtree(save_directory)
 
-            model, _, step = utils.try_load_model(save_dir, step_ckpt=step_ckpt, return_new_model=False, verbose=False)
+            model, _, step, _, _ = utils.try_load_model(save_dir, step_ckpt=i, return_new_model=False, verbose=False)
 
             if model is None:
                 break

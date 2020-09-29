@@ -11,6 +11,7 @@ import configs
 import utils
 from datasets.dataset_loader import get_train_test_data
 
+SPLITS = None
 
 def clamped(x):
     return tf.clip_by_value(x, 0, 1.0)
@@ -70,6 +71,23 @@ def sample_one_step(model, x, idx_sigmas, alpha_i):
     return x + alpha_i / 2 * score + noise
 
 
+@tf.function
+def sample_conditioned_step(model, x, idx_sigmas, alpha_i):  
+    score = model([x, idx_sigmas])
+    
+    x, y = tf.split(x, SPLITS, axis=-1)
+    z_t = tf.random.normal(shape=x.get_shape(), mean=0, stddev=1.0)
+    noise = tf.sqrt(alpha_i) * z_t
+    x = x + alpha_i / 2 * score + noise
+
+    return tf.concat((x, y), axis=-1)
+
+@tf.function
+def prepare_conditioned_sample(x):
+    img, y = tf.split(x, SPLITS, axis=-1)
+    noise = tf.random.uniform(shape=img.shape)
+    return tf.concat((noise,y), axis=-1)
+
 def sample_many(model, sigmas, batch_size=128, eps=2 * 1e-5, T=100, n_images=1):
     """
     Used for sampling big amount of images (e.g. 50000)
@@ -122,7 +140,7 @@ def _preprocess_image_to_save(x):
     return x
 
 
-def sample_many_and_save(model, sigmas, batch_size=128, eps=2 * 1e-5, T=100, n_images=1, save_directory=None):
+def sample_many_and_save(model, sigmas, batch_size=1000, eps=2 * 1e-5, T=100, n_images=1, save_directory=None):
     """
     Used for sampling big amount of images (e.g. 50000)
     :param model: model for sampling (RefineNet)
@@ -180,15 +198,15 @@ def sample_and_save(model, sigmas, x=None, eps=2 * 1e-5, T=100, n_images=1, save
         image_size = x.shape
         n_images = image_size[0]
 
-    # Use ground truth masks
-    if (configs.config_values.dataset == "masked_fashion"):
-        print("Using groundtruth masks...")
-        x = x.numpy()
-        fashion_test = get_train_test_data("masked_fashion")[1]
-        fashion_test = fashion_test.batch(n_images).take(1)
-        f_samples = next(iter(fashion_test)).numpy()
-        x[...,-1] = f_samples[...,-1]
-        x = tf.constant(x)
+    # # Use ground truth masks
+    # if (configs.config_values.dataset == "masked_fashion"):
+    #     print("Using groundtruth masks...")
+    #     x = x.numpy()
+    #     fashion_test = get_train_test_data("masked_fashion")[1]
+    #     fashion_test = fashion_test.batch(n_images).take(1)
+    #     f_samples = next(iter(fashion_test)).numpy()
+    #     x[...,-1] = f_samples[...,-1]
+    #     x = tf.constant(x)
 
     for i, sigma_i in enumerate(tqdm(sigmas, desc='Sampling for each sigma')):
         alpha_i = eps * (sigma_i / sigmas[-1]) ** 2

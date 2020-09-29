@@ -16,6 +16,18 @@ BRAIN_LABELS = ["background", "CSF", "gray matter", "white matter",
 
 def load_data(dataset_name):
     # load data from tfds
+    
+    # Optionally split training data 
+    if configs.config_values.split[0] != "100":
+        split = configs.config_values.split
+        split = [
+            "train[:{}%]".format(split[0]),
+            "train[-{}%:]".format(split[1]),
+            "test"
+        ]
+    else:
+        split = ["train","test"]
+    print("Split:", split)
 
     if dataset_name in ["masked_fashion", "blown_fashion", "blown_masked_fashion"]:
         dataset_name="fashion_mnist"
@@ -35,16 +47,37 @@ def load_data(dataset_name):
     if "brain" in dataset_name:
         return load_brain_data()
 
+    if "circles" == dataset_name:
+        return load_circles()
+
     if "pet" in dataset_name:
         dataset = tfds.load('oxford_iiit_pet', data_dir="data")
         train, test = dataset["train"], dataset["test"]
         train = train.concatenate(test.shuffle(4000, seed=2020, reshuffle_each_iteration=False).take(3000))
         test  = test.skip(3000)
     else:
-        data_generators = tfds.load(name=dataset_name, batch_size=-1, data_dir="data", shuffle_files=False)
-        train = tf.data.Dataset.from_tensor_slices(data_generators['train']['image'])
-        test = tf.data.Dataset.from_tensor_slices(data_generators['test']['image'])
+        data_generators = tfds.load(name=dataset_name, batch_size=-1, data_dir="data",
+                                    shuffle_files=False, split=split)
+        
+        # First and last will always be train/test
+        # Potentially split could include a tune set which will be used later for learning the density
+        # and will be ignored by score matching 
+        train = tf.data.Dataset.from_tensor_slices(data_generators[0]['image'])
+        test = tf.data.Dataset.from_tensor_slices(data_generators[-1]['image'])
+
     return train, test
+
+def load_circles():
+    with open("data/circles/train_smooth_64x64.p", "rb") as f:
+        data = pickle.load(f)
+        train = tf.data.Dataset.from_tensor_slices(data)
+    
+    with open("data/circles/test_smooth_64x64.p", "rb") as f:
+        data = pickle.load(f)
+        test = tf.data.Dataset.from_tensor_slices(data)
+
+    return train, test
+
 
 def load_brain_data():
     

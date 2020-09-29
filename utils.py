@@ -9,6 +9,8 @@ from model.refinenet import RefineNet, RefineNetTwoResidual, MaskedRefineNet
 from model.resnet import ResNet
 
 dict_datasets_image_size = {
+    "circles": (64,64,1),
+    "highres": (2048,1024,3),
     "brain": (91,109,1),
     "masked_brain": (91,109,2),
     "seg_brain": (91,109,8),
@@ -24,10 +26,14 @@ dict_datasets_image_size = {
     "masked_cifar10": (32,32,4),
     "seg_cifar10": (32,32,14),
     "multiscale_cifar10": (32,32,6),
-    'celeb_a': (32, 32, 3)
+    'celeb_a': (32, 32, 3),
+    "svhn_cropped": (32, 32, 3),
 }
 
 dict_train_size = {
+    "circles": 100000,
+    "svhn_cropped": 73000,
+    'cifar10': 60000,
     "brain": 10500,
     "masked_brain": 10500,
     "seg_brain": 10500,
@@ -69,6 +75,8 @@ def check_args_validity(args):
     assert args.model in ["baseline", "resnet", "refinenet", "refinenet_twores", "masked_refinenet"]
     if args.max_to_keep == -1:
         args.max_to_keep = None
+    args.split = args.split.split(",")
+    args.split = list(map(lambda x: x.strip(), args.split))
     return
 
 def _build_parser():
@@ -116,6 +124,8 @@ def _build_parser():
                         help="whether the model is conditioned on auxiallary y information (default: False)")
     parser.add_argument('--max_to_keep', default=2, type=int,
                         help="Number of checkopints to keep saved (default: 2)")
+    parser.add_argument('--split', default='100,0', type=str,
+                        help="Train/(Tune)/Test split e.g. 'train[:90%],train[-10%:],test' (default: train,test)")
 
     return parser
 
@@ -145,10 +155,11 @@ def get_savemodel_dir():
     
     # Folder name: model_name+filters+dataset+L
     if not configs.config_values.model == 'baseline':
-        complete_model_name = '{}{}_{}_L{}_SH{:.0e}_SL{:.0e}'.format(model_name, configs.config_values.filters,
+        complete_model_name = '{}{}_{}_L{}_SH{:.0e}_SL{:.0e}/train_{}'.format(model_name, configs.config_values.filters,
                                                    configs.config_values.dataset, configs.config_values.num_L,
                                                    configs.config_values.sigma_high,
-                                                   configs.config_values.sigma_low
+                                                   configs.config_values.sigma_low,
+                                                   "_".join(configs.config_values.split)
                                                    )
     else:
         complete_model_name = '{}{}_{}_SL{:.0e}'.format(model_name, configs.config_values.filters, configs.config_values.dataset,configs.config_values.sigma_low)
@@ -206,7 +217,7 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
         print("Using Masked RefineNet...")
         # assert configs.config_values.y_cond 
         model = MaskedRefineNet(filters=configs.config_values.filters, activation=tf.nn.elu, 
-        splits=dict_splits[configs.config_values.dataset])
+        splits=dict_splits[configs.config_values.dataset], y_conditioned=configs.config_values.y_cond)
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=configs.config_values.learning_rate)
     step = 0
@@ -232,14 +243,18 @@ def try_load_model(save_dir, step_ckpt=-1, return_new_model=True, verbose=True, 
     if configs.config_values.resume:
         if step_ckpt == -1:
             print("Trying to load latest model from " + save_dir)
-            checkpoint = tf.train.latest_checkpoint(save_dir)
+            checkpoint = tf.train.latest_checkpoint(str(save_dir))
         else:
             print("Trying to load checkpoint with step", step_ckpt, " model from " + save_dir)
             onlyfiles = [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))]
-            r = re.compile(".*step_{}-.*".format(step_ckpt))
+            # r = re.compile(".*step_{}-.*".format(step_ckpt))
+            r = re.compile("ckpt-{}\\..*".format(step_ckpt))
+
             name_all_checkpoints = sorted(list(filter(r.match, onlyfiles)))
+            print(name_all_checkpoints)
             # Retrieve name of the last checkpoint with that number of steps
             name_ckpt = name_all_checkpoints[-1][:-6]
+            # print(name_ckpt)
             checkpoint = save_dir + name_ckpt
         if checkpoint is None:
             print("No model found.")

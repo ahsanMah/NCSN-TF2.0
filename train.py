@@ -11,38 +11,6 @@ from losses.losses import dsm_loss, ocnn_loss, update_radius, normalized_dsm_los
 
 SIGMA_LEVELS = None
 
-# @tf.function
-# def train_one_step(model, optimizer, data_batch_perturbed, data_batch, idx_sigmas, sigmas):
-#     with tf.GradientTape() as t:
-#         scores = model([data_batch_perturbed, idx_sigmas])
-#         current_loss = dsm_loss(scores, data_batch_perturbed, data_batch, sigmas)
-#         gradients = t.gradient(current_loss, model.trainable_variables)
-#     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-#     return current_loss
-
-# @tf.function
-# def train_one_masked_step(model, optimizer, data_batch, sigma_levels, num_L):
-#     idx_sigmas = tf.random.uniform([data_batch.shape[0]], minval=0,
-#                                 maxval=num_L,
-#                                 dtype=tf.dtypes.int32)
-#     sigmas = tf.gather(sigma_levels, idx_sigmas)
-#     sigmas = tf.reshape(sigmas, shape=(data_batch.shape[0], 1, 1, 1))
-    
-#     # This is the only thing thats different --> Noise is only applied to foreground
-#     x_batch, masks = tf.split(data_batch, 2, axis=-1)
-#     x_perturbed = x_batch + tf.random.normal(shape=x_batch.shape) * sigmas
-#     x_perturbed = tf.multiply(x_perturbed, masks)
-#     data_batch_perturbed = tf.concat((x_perturbed, masks), axis=-1)
-
-#     with tf.GradientTape() as t:
-#         scores = model([data_batch_perturbed, idx_sigmas])
-#         # current_loss = dsm_loss(scores, x_perturbed, x_batch, sigmas, masks)
-#         current_loss = dsm_loss(scores, x_perturbed, x_batch, sigmas)
-#         gradients = t.gradient(current_loss, model.trainable_variables)
-#     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
-#     return current_loss
-
 @tf.function
 def test_step_masked(model, data_batch, sigma_levels, num_L):
     idx_sigmas = (num_L-1)*tf.ones([data_batch.shape[0]],
@@ -81,7 +49,9 @@ def main():
     LOG_FREQ = 100
     SIGMA_LEVELS = utils.get_sigma_levels()
     NUM_L = configs.config_values.num_L
-    SPLITS = utils.dict_splits[configs.config_values.dataset]
+    
+    if configs.config_values.y_cond or configs.config_values.model == "masked_refinenet":
+        SPLITS = utils.dict_splits[configs.config_values.dataset]
 
     @tf.function
     def test_one_step(model, data_batch):
@@ -192,7 +162,7 @@ def main():
 
     # path for saving the model(s)
     save_dir, complete_model_name = utils.get_savemodel_dir()
-    # save_dir += "/norm_loss/"
+    # save_dir += "/multichannel/"
 
     # array of sigma levels
     # generate geometric sequence of values between sigma_low (0.01) and sigma_high (1.0)

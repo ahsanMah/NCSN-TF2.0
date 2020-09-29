@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
-
+from tensorflow_addons.layers import InstanceNormalization
 import configs
 
 
@@ -16,6 +16,49 @@ class DilatedConv2D(layers.Layer):
         x = self.padding(inputs)
         x = self.conv(x)
         return x
+
+class FullPreActivationBlock(layers.Layer):
+    def __init__(self, activation, filters, kernel_size=3, dilation=1, padding=1, pooling=False):
+        super(FullPreActivationBlock, self).__init__()
+
+        self.norm1 = InstanceNormalization()
+        # FIXME: The number of filters in this convolution should be equal
+        # to the input depth, instead of "filters"
+        # The depth is increased only in the conv2
+        self.conv1 = DilatedConv2D(filters, kernel_size, dilation, padding)
+        self.norm2 = InstanceNormalization()
+        self.conv2 = DilatedConv2D(filters, kernel_size, dilation, padding)
+        self.pooling = pooling
+        self.activation = activation
+
+        self.increase_channels_skip = None
+
+        self.filters = filters
+
+    def build(self, input_shape):
+        begin_filters = input_shape[-1]
+        if begin_filters != self.filters:
+            self.increase_channels_skip = layers.Conv2D(self.filters, kernel_size=1, padding='valid')
+
+    def call(self, inputs, **kwargs):
+        skip_x = inputs
+        x = self.norm1(skip_x)
+        x = self.activation(x) 
+        x = self.conv1(x)
+        x = self.norm2(x)
+        x = self.activation(x)
+        x = self.conv2(x)
+
+        if self.increase_channels_skip is not None:
+            skip_x = self.increase_channels_skip(skip_x)
+
+        if self.pooling:
+            # FIXME: In the original code, there is a convolution before this pooling
+            x = tf.nn.avg_pool2d(x, ksize=2, strides=2, padding='SAME')
+            skip_x = tf.nn.avg_pool2d(skip_x, ksize=2, strides=2, padding='SAME')
+
+        return skip_x + x
+
 
 
 class ConditionalFullPreActivationBlock(layers.Layer):

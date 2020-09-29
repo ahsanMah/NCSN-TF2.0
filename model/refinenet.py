@@ -3,7 +3,7 @@ import tensorflow.keras as keras
 import tensorflow.keras.layers as layers
 from tensorflow.keras.layers import Multiply, concatenate, GlobalAveragePooling2D
 
-from model.layers import RefineBlock, ConditionalFullPreActivationBlock, ConditionalInstanceNormalizationPlusPlus2D
+from model.layers import RefineBlock, ConditionalFullPreActivationBlock, ConditionalInstanceNormalizationPlusPlus2D, FullPreActivationBlock
 
 class RefineNet(keras.Model):
     def __init__(self, filters, activation, y_conditioned=False, splits=None):
@@ -68,7 +68,7 @@ class RefineNet(keras.Model):
 
 
 class MaskedRefineNet(keras.Model):
-    def __init__(self, filters, activation, splits):
+    def __init__(self, filters, activation, splits, y_conditioned=False):
         super(MaskedRefineNet, self).__init__()
         self.in_shape = None
         self.filters = filters
@@ -76,6 +76,14 @@ class MaskedRefineNet(keras.Model):
         # Describes how to split the conditioning information
         # Assumes x is concatenated with its pixel-wise conditioning info
         self.splits = splits
+
+        # Concatenate x,y too feed into RefineNet block
+        # Encourages local per-pixel conditioning
+        self.y_conditioned = y_conditioned
+
+        # Filters used for every channel when dotting 
+        # dotting with conditioning block
+        self.conditional_embedding_size = 256
 
         self.increase_channels = layers.Conv2D(filters, kernel_size=3, padding='same')
 
@@ -94,11 +102,14 @@ class MaskedRefineNet(keras.Model):
         self.norm = ConditionalInstanceNormalizationPlusPlus2D()
         self.activation = activation
         self.decrease_channels = None
-        self.depth_extension = layers.Conv2D(filters*self.splits[0], kernel_size=3, padding="same")
+        self.depth_extension = layers.Conv2D(self.conditional_embedding_size*self.splits[0], kernel_size=3, padding="same")
 
         # Added for conditioning block
         self.increase_conditional_channels = layers.Conv2D(filters, kernel_size=3, padding='same')
-        self.conditional_block = ConditionalFullPreActivationBlock(activation, filters, kernel_size=3)
+        # self.conditional_block = FullPreActivationBlock(activation, self.conditional_embedding_size*splits[0], kernel_size=3)
+        self.conditional_block = FullPreActivationBlock(activation, self.conditional_embedding_size, kernel_size=3, dilation=2, padding=2)
+
+        
         self.pool = GlobalAveragePooling2D(data_format="channels_last")
         self.dot  = tf.keras.layers.Dot(axes=(4, 1), name="condition_dot")
 
@@ -108,15 +119,19 @@ class MaskedRefineNet(keras.Model):
         # Here we get the depth of the image that is passed to the model at the start, i.e. 1 for MNIST.
         self.in_shape = input_shape
         old_shape = (*input_shape[0][1:-1], self.filters)
-        new_shape = (*input_shape[0][1:-1], self.splits[0], self.filters)
+        new_shape = (*input_shape[0][1:-1], self.splits[0], self.conditional_embedding_size)
         # print("Reshaping to:", new_shape)
-        self.reshape = layers.Reshape(new_shape, input_shape=old_shape)
+        self.reshape = layers.Reshape(new_shape)
+        
 
     def call(self, inputs, mask=None):
         # xmc =  
         x_y, idx_sigmas = inputs
         x, y = tf.split(x_y, self.splits, axis=-1)
         # print("Input Shapes:", x.shape, y.shape)
+        
+        if self.y_conditioned:
+            x = x_y
 
         x = self.increase_channels(x)
 
@@ -132,27 +147,30 @@ class MaskedRefineNet(keras.Model):
 
         output = self.norm([output_1, idx_sigmas]) 
         output = self.activation(output)
-        # print("RefineNet Output:", output.shape)
+        print("RefineNet Output:", output.shape)
         output = self.depth_extension(output)
-        # print("Score Block:", output.shape)
+        print("Score Block:", output.shape)
         output = self.reshape(output)
-        # print("5D Score Block:", output.shape)
+        print("5D Score Block:", output.shape)
 
-        y = self.increase_conditional_channels(y)
-        conditioning_weights = self.conditional_block([y, idx_sigmas])
-        # print("Condition Block:", conditioning_weights.shape)
+        # y = self.increase_conditional_channels(y)
+        conditioning_weights = self.conditional_block(y)
+        print("Condition Block:", conditioning_weights.shape)
         conditioning_weights = self.pool(conditioning_weights)
-        # print("Condition Block Pooled:", conditioning_weights.shape)
+        # conditioning_weights = self.reshape(conditioning_weights)
+        print("Condition Block Pooled:", conditioning_weights.shape)
 
-        output = self.dot([output, conditioning_weights])
+        final_output = self.dot([output, conditioning_weights])
+        # final_output = tf.math.multiply(output, conditioning_weights, name= "Channel_Mult")
+        # final_output = tf.reduce_sum(final_output, axis=-1)
 
-        return output
+        return final_output
 
     def summary(self):
         x = [layers.Input(name="images", shape=self.in_shape[0][1:]),
              layers.Input(name="idx_sigmas", shape=(), dtype=tf.int32)]
-        return keras.Model(inputs=x, outputs=self.call(x)).summary()
-
+        return keras.Model(inputs=x, outputs=self.call(x)).summary(line_length=100)
+ 
 
 class RefineNetTwoResidual(keras.Model):
 
