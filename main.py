@@ -1,12 +1,12 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import tensorflow as tf
 
 import configs
 import evaluation
 from generating import inpainting, generate, k_nearest, intermediate
 import toytrain
-import train
+import trainv2 as train
 import utils
 
 import celeb_a_statistics
@@ -30,6 +30,7 @@ if __name__ == '__main__':
 
     args = utils.get_command_line_args()
     configs.config_values = args
+    utils.print_and_save_params()
 
     run = EXPERIMENTS[args.experiment]
 

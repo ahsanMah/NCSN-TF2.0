@@ -136,12 +136,20 @@ def get_command_line_args():
 
     check_args_validity(parser)
 
-    print("=" * 20 + "\nParameters: \n")
-    for key in parser.__dict__:
-        print(key + ': ' + str(parser.__dict__[key]))
-    print("=" * 20 + "\n")
     return parser
 
+def print_and_save_params():
+    s = "=" * 20 + "\nParameters: \n"
+    for key in configs.config_values.__dict__:
+        s += key + ': ' + str(configs.config_values.__dict__[key]) + "\n"
+    s += "=" * 20 + "\n"
+    print(s)
+
+    save_dir, complete_model_name = get_savemodel_dir()
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    with open(save_dir +"/params.txt", "w") as f:
+        f.write(s)
 
 def get_tensorflow_device():
     device = 'gpu:0' if tf.test.is_gpu_available() else 'cpu'
