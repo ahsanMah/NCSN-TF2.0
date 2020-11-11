@@ -6,7 +6,8 @@ import configs
 import evaluation
 from generating import inpainting, generate, k_nearest, intermediate
 import toytrain
-import trainv2 as train
+# import trainv2 as train
+import train
 import utils
 
 import celeb_a_statistics
@@ -25,8 +26,8 @@ EXPERIMENTS = {
 }
 
 if __name__ == '__main__':
-    tf.get_logger().setLevel('ERROR')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    # tf.get_logger().setLevel('ERROR')
+    # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
     args = utils.get_command_line_args()
     configs.config_values = args
