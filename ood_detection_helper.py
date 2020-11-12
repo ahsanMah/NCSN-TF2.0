@@ -14,7 +14,15 @@ from skimage import draw
 from sklearn.metrics import roc_curve
 from sklearn.metrics import classification_report, average_precision_score
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
-    
+from sklearn.neighbors import NearestNeighbors   
+
+import tensorflow_probability as tfp
+tfb = tfp.bijectors
+tfk = tf.keras
+tfkl = tf.keras.layers
+tfpl = tfp.layers
+tfd = tfp.distributions
+
 
 def get_command_line_args(_args):
     parser = utils._build_parser()
@@ -29,8 +37,8 @@ def get_command_line_args(_args):
     # print("=" * 20 + "\n")
     return parser
 
-configs.config_values = get_command_line_args([])
-SIGMAS = utils.get_sigma_levels().numpy()
+# configs.config_values = get_command_line_args([])
+# SIGMAS = utils.get_sigma_levels().numpy()
 
 @tf.function(experimental_compile=True)
 def reduce_norm(x):
@@ -55,13 +63,16 @@ def full_norm(x):
 
 
 def load_model(inlier_name="cifar10", checkpoint=-1, save_path="saved_models/",
-                filters=128, batch_size=1000, split="100,0"):
+               filters=128, batch_size=1000, split="100,0",
+               s_low=0.01, s_high=1, num_L=10):
+    
     args = get_command_line_args([
         "--checkpoint_dir=" + save_path,
         "--filters=" + str(filters),
         "--dataset=" + inlier_name,
-        "--sigma_low=0.01",
-        "--sigma_high=1",
+        "--sigma_low=" + str(s_low),
+        "--sigma_high=" + str(s_high),
+        "--num_L=" + str(num_L),
         "--resume_from=" + str(checkpoint),
         "--batch_size=" + str(batch_size),
         "--split=" + split
@@ -75,54 +86,159 @@ def load_model(inlier_name="cifar10", checkpoint=-1, save_path="saved_models/",
                                                 verbose=True)
     return model
 
+def result_dict(train_score, test_score, ood_scores, metrics):
+    return {
+        "train_scores":train_score,
+        "test_scores": test_score,
+        "ood_scores": ood_scores,
+        "metrics": metrics
+        }
 
-def compute_scores(model, x_test):
+def auxiliary_model_analysis(X_train, X_test, outliers, labels, flow_epochs=1000):
+
+    def get_metrics(test_score, ood_scores, **kwargs):
+        metrics = {}
+        for idx, _score in enumerate(ood_scores):
+            ood_name = labels[idx+2]
+            metrics[ood_name] = ood_metrics(test_score, _score,
+                                    names=(labels[1], ood_name))
+        metrics_df = pd.DataFrame(metrics).T * 100 # Percentages
+        return metrics_df
+
     
+
+    print("====="*5 + " Training GMM " + "====="*5)
+    best_gmm_clf = train_gmm(X_train,  verbose=True)
+    print("---Likelihoods---")
+    print("Training: {:.3f}".format(best_gmm_clf.score(X_train)))
+    print("{}: {:.3f}".format(labels[1], best_gmm_clf.score(X_test)))
+
+    for name, ood in zip(labels[2:], outliers):
+        print("{}: {:.3f}".format(name, best_gmm_clf.score(ood)))
+
+    gmm_train_score = best_gmm_clf.score_samples(X_train)
+    gmm_test_score = best_gmm_clf.score_samples(X_test)
+    gmm_ood_scores = np.array([best_gmm_clf.score_samples(ood) for ood in outliers])
+    gmm_metrics = get_metrics(-gmm_test_score, -gmm_ood_scores)
+    gmm_results = result_dict(gmm_train_score, gmm_test_score, gmm_ood_scores, gmm_metrics)
+
+    print("====="*5 + " Training Flow Model " + "====="*5)
+    flow_model = train_flow(X_train, X_test, epochs=flow_epochs)
+    flow_train_score = flow_model.log_prob(X_train, dtype=np.float32).numpy()
+    flow_test_score = flow_model.log_prob(X_test, dtype=np.float32).numpy()
+    flow_ood_scores = np.array([flow_model.log_prob(ood, dtype=np.float32).numpy() for ood in outliers])
+
+    
+
+    flow_metrics = get_metrics(-flow_test_score, -flow_ood_scores)
+    flow_results = result_dict(flow_train_score, flow_test_score, flow_ood_scores, flow_metrics)
+    
+
+    print("====="*5 + " Training KD Tree " + "====="*5)
+
+    N_NEIGHBOURS = 5
+    nbrs = NearestNeighbors(n_neighbors=N_NEIGHBOURS, algorithm='kd_tree').fit(X_train)
+
+    kd_train_score, indices = nbrs.kneighbors(X_train)
+    kd_train_score = kd_train_score[...,-1] # Distances to the kth neighbour
+    kd_test_score, _ = nbrs.kneighbors(X_test)
+    kd_test_score = kd_test_score[...,-1]
+    kd_ood_scores = []
+    for ood in outliers:
+        dists, _ = nbrs.kneighbors(ood)
+        kd_ood_scores.append(dists[...,-1]) 
+    kd_metrics = get_metrics(kd_test_score, kd_ood_scores)
+
+    kd_results = result_dict(kd_train_score, kd_test_score, kd_ood_scores, kd_metrics)
+
+    return dict(GMM=gmm_results, Flow=flow_results, KD=kd_results)
+
+
+def train_flow(X_train, X_test, batch_size=128, epochs=1000, verbose=True):
+
+    
+    # Density estimation with MADE.
+    n = X_train.shape[0]
+    made = tfb.AutoregressiveNetwork(params=2, hidden_units=[128, 128], activation="elu")
+
+    distribution = tfd.TransformedDistribution(
+        distribution=tfd.Normal(loc=0., scale=1.),
+        bijector=tfb.MaskedAutoregressiveFlow(made),
+        event_shape=[X_train.shape[1]] # Input dimension of scores (L=10 for our tests)
+        )
+
+    # Construct and fit model.
+    x_ = tfkl.Input(shape=(X_train.shape[1],), dtype=tf.float32)
+    log_prob_ = distribution.log_prob(x_)
+    model = tfk.Model(x_, log_prob_)
+
+    model.compile(optimizer=tf.optimizers.Adadelta(learning_rate=0.01),
+                loss=lambda _, log_prob: -log_prob)
+
+    history = model.fit(
+        x=X_train,
+        y=np.zeros((n, 0), dtype=np.float32),
+        validation_data=(X_test, np.zeros((X_test.shape[0], 0), dtype=np.float32)),
+        batch_size=batch_size,
+        epochs=epochs,
+        steps_per_epoch=n//batch_size,  # Usually `n // batch_size`.
+        shuffle=True,
+        verbose=verbose)
+
+    if verbose:
+        start_idx=5 # First few epoch losses are very large
+        plt.plot(range(start_idx, epochs), history.history["loss"][start_idx:], label="Train")
+        plt.plot(range(start_idx, epochs), history.history["val_loss"][start_idx:], label="Test")
+        plt.legend()
+        plt.show()
+
+    return distribution # Return distribution optmizied via MLE 
+
+def compute_weighted_scores(model, x_test):
     # Sigma Idx -> Score
     score_dict = []
-    
-    sigmas = utils.get_sigma_levels().numpy()
+    sigmas = utils.get_sigma_levels()
     final_logits = 0 #tf.zeros(logits_shape)
     progress_bar = tqdm(sigmas)
     for idx, sigma in enumerate(progress_bar):
         
         progress_bar.set_description("Sigma: {:.4f}".format(sigma))
-        _logits =[]
-
+        _logits = []
         for x_batch in x_test:
             idx_sigmas = tf.ones(x_batch.shape[0], dtype=tf.int32) * idx
-            score = model([x_batch, idx_sigmas])
+            score = model([x_batch, idx_sigmas]) * sigma
+            score = reduce_norm(score)
             _logits.append(score)
+        score_dict.append(tf.identity(tf.concat(_logits, axis=0)))
+    
+    # N x L Matrix of score norms
+    scores =  tf.squeeze(tf.stack(score_dict, axis=1))
+    return scores
 
-        _logits = tf.concat(_logits, axis=0)
-        score_dict.append(tf.identity(_logits))
+def plot_curves(inlier_score, outlier_score, label, axs=()):
 
-    return tf.stack(score_dict, axis=0)
-
-def plot_curves(inlier_score, outlier_score, names, figure=()):
-
-    if len(figure)==0:
+    if len(axs)==0:
         fig, axs = plt.subplots(1,2, figsize=(16,4))
-    else:
-        fig,axs = figure
     
     y_true = np.concatenate((np.zeros(len(inlier_score)),
                              np.ones(len(outlier_score))))
     y_scores = np.concatenate((inlier_score, outlier_score))
 
     fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=True)
+    roc_auc = roc_auc = roc_auc_score(y_true,y_scores)
+
     prec_in, rec_in, _ = precision_recall_curve(y_true, y_scores)
     prec_out, rec_out, _ = precision_recall_curve((y_true==0), -y_scores)
-    
+    pr_auc = auc(rec_in, prec_in)
+   
     ticks = np.arange(0.0, 1.1, step=0.1)
-
-    axs[0].plot(fpr, tpr, label=names[1])
+    axs[0].plot(fpr, tpr, label="{}: {:.3f}".format(label, roc_auc))
     axs[0].set(
         xlabel="FPR", ylabel="TPR", title="ROC", ylim=(-0.05, 1.05),
         xticks=ticks, yticks=ticks,
     )
 
-    axs[1].plot(rec_in, prec_in, label=names[1])
+    axs[1].plot(rec_in, prec_in, label="{}: {:.3f}".format(label, pr_auc))
     # axs[1].plot(rec_out, prec_out, label="PR-Out")
     axs[1].set(
         xlabel="Recall", ylabel="Precision", title="Precision-Recall", ylim=(-0.05, 1.05),
@@ -132,12 +248,12 @@ def plot_curves(inlier_score, outlier_score, names, figure=()):
     axs[0].legend()
     axs[1].legend()
     
-    if len(figure)==0:
-        fig.suptitle("{} vs {}".format(*names), fontsize=20)
+    if len(axs)==0:
+        fig.suptitle("{} vs {}".format(*labels), fontsize=20)
         plt.show()
         plt.close()
     
-    return
+    return axs
 
 def ood_metrics(inlier_score, outlier_score, plot=False, verbose=False, 
                 names=["Inlier", "Outlier"]):
@@ -161,7 +277,7 @@ def ood_metrics(inlier_score, outlier_score, plot=False, verbose=False,
     
     if find_fpr:
         tpr95_idx = np.where(np.isclose(tpr,0.95, rtol=1e-3, atol=1e-4))[0][0]
-        tpr80_idx = np.where(np.isclose(tpr,0.8, rtol=1e-3, atol=1e-4))[0][0]
+        tpr80_idx = np.where(np.isclose(tpr,0.8, rtol=1e-2, atol=1e-3))[0][0]
     else:
         # This is becasuse numpy bugs out when the scores are fully separable
         tpr95_idx, tpr80_idx = 0,0 #tpr95_idx
@@ -171,13 +287,13 @@ def ood_metrics(inlier_score, outlier_score, plot=False, verbose=False,
 
 
     metrics = dict(
-        roc_auc = roc_auc_score(y_true,y_scores),
         fpr_tpr95 = fpr[tpr95_idx],
-        fpr_tpr80 = fpr[tpr80_idx],
+        de = de,
+        roc_auc = roc_auc_score(y_true,y_scores),
         pr_auc_in = auc(rec_in, prec_in),
         pr_auc_out = auc(rec_out, prec_out),
-        ap = average_precision_score(y_true,y_scores),
-        de = de,
+        fpr_tpr80 = fpr[tpr80_idx],
+        ap = average_precision_score(y_true,y_scores)
     )
     
     if plot:    
@@ -255,28 +371,6 @@ def plot_embedding(embedding, labels, captions):
     fig.show("notebook")
 
     return
-# def evaluate_model(train_score, test_score, outlier_score, outlier_score_2, labels):
-#     fig, axs = plt.subplots(2,1, figsize=(16,8))
-#     colors = ["red", "blue", "green", "orange"]
-
-#     sns.distplot(train_score,color=colors[0], label="Training", ax=axs[0])
-#     sns.distplot(test_score, color=colors[1], label=labels[1], ax=axs[0])
-#     sns.distplot(outlier_score, color=colors[2], label=labels[2], ax=axs[0])
-#     sns.distplot(outlier_score_2, color=colors[3], label=labels[3], ax=axs[0])
-
-#     sns.distplot(test_score, color=colors[1], label=labels[1], ax=axs[1])
-#     sns.distplot(outlier_score, color=colors[2], label=labels[2], ax=axs[1])
-
-#     axs[0].legend()
-#     axs[1].legend()
-#     plt.show()
-    
-#     ood_metrics(-test_score, -outlier_score_2, names=(labels[1], labels[3]),
-#                 plot=False, verbose=True)
-#     print()
-#     ood_metrics(-test_score, -outlier_score, names=(labels[1], labels[2]),
-#                 plot=False, verbose=True)
-#     return
 
 def evaluate_model(train_score, inlier_score, outlier_scores, labels, ylim=None, xlim=None, **kwargs):
     rows = 1 + int(np.ceil(len(outlier_scores)/2))
@@ -309,9 +403,9 @@ def evaluate_model(train_score, inlier_score, outlier_scores, labels, ylim=None,
         ax.set_ylim(top=ylim)
         ax.set_xlim(left=xlim, right=100 if xlim else None)
 
-    plt.show()
+    # plt.show()
     
-    return
+    return axs
 
 
 def train_gmm(X_train, components_range=range(2,21,2) ,verbose=False):
@@ -343,6 +437,7 @@ def train_gmm(X_train, components_range=range(2,21,2) ,verbose=False):
         for mean, stdev, param in zip(means, stds, params):
             print("%f (%f) with: %r" % (mean, stdev, param))
         plt.plot([p["GMM__n_components"] for p in params], means)
+        plt.show()
 
     
     best_gmm_clf = gmm_clf.set_params(**grid.best_params_)
