@@ -126,6 +126,8 @@ def _build_parser():
                         help="Number of checkopints to keep saved (default: 2)")
     parser.add_argument('--split', default='100,0', type=str,
                         help="Train/(Tune)/Test split e.g. 'train[:90%],train[-10%:],test' (default: train,test)")
+    parser.add_argument('--seed', default=42, type=int,
+                        help="Seed for random generator (default: 42)")
 
     return parser
 

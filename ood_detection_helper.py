@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import plotly as py
-import plotly.graph_objs as go
+# import plotly as py
+# import plotly.graph_objs as go
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
@@ -18,10 +18,10 @@ from sklearn.neighbors import NearestNeighbors
 
 import tensorflow_probability as tfp
 tfb = tfp.bijectors
+tfd = tfp.distributions
+tfpl = tfp.layers
 tfk = tf.keras
 tfkl = tf.keras.layers
-tfpl = tfp.layers
-tfd = tfp.distributions
 
 
 def get_command_line_args(_args):
@@ -44,6 +44,28 @@ def get_command_line_args(_args):
 def reduce_norm(x):
     return tf.norm(tf.reshape(x, shape=(x.shape[0], -1)),
                    axis=1, ord="euclidean", keepdims=True)
+
+def compute_weighted_scores(model, x_test):
+    # Sigma Idx -> Score
+    score_dict = []
+    sigmas = utils.get_sigma_levels()
+    final_logits = 0 #tf.zeros(logits_shape)
+    progress_bar = tqdm(sigmas)
+    for idx, sigma in enumerate(progress_bar):
+        
+        progress_bar.set_description("Sigma: {:.4f}".format(sigma))
+        _logits = []
+        for x_batch in x_test:
+            idx_sigmas = tf.ones(x_batch.shape[0], dtype=tf.int32) * idx
+            score = model([x_batch, idx_sigmas]) * sigma
+            score = reduce_norm(score)
+            _logits.append(score)
+        score_dict.append(tf.identity(tf.concat(_logits, axis=0)))
+    
+    # N x L Matrix of score norms
+    scores =  tf.squeeze(tf.stack(score_dict, axis=1))
+    return scores
+
 
 # Takes a norm of the weighted sum of tensors
 @tf.function(experimental_compile=True)
@@ -122,16 +144,16 @@ def auxiliary_model_analysis(X_train, X_test, outliers, labels, flow_epochs=1000
     gmm_metrics = get_metrics(-gmm_test_score, -gmm_ood_scores)
     gmm_results = result_dict(gmm_train_score, gmm_test_score, gmm_ood_scores, gmm_metrics)
 
-    print("====="*5 + " Training Flow Model " + "====="*5)
-    flow_model = train_flow(X_train, X_test, epochs=flow_epochs)
-    flow_train_score = flow_model.log_prob(X_train, dtype=np.float32).numpy()
-    flow_test_score = flow_model.log_prob(X_test, dtype=np.float32).numpy()
-    flow_ood_scores = np.array([flow_model.log_prob(ood, dtype=np.float32).numpy() for ood in outliers])
-
-    
-
-    flow_metrics = get_metrics(-flow_test_score, -flow_ood_scores)
-    flow_results = result_dict(flow_train_score, flow_test_score, flow_ood_scores, flow_metrics)
+#     print("====="*5 + " Training Flow Model " + "====="*5)
+    if flow_epochs == 0:
+        flow_results = None
+    else:
+        flow_model = train_flow(X_train, X_test, epochs=flow_epochs)
+        flow_train_score = flow_model.log_prob(X_train, dtype=np.float32).numpy()
+        flow_test_score = flow_model.log_prob(X_test, dtype=np.float32).numpy()
+        flow_ood_scores = np.array([flow_model.log_prob(ood, dtype=np.float32).numpy() for ood in outliers])
+        flow_metrics = get_metrics(-flow_test_score, -flow_ood_scores)
+        flow_results = result_dict(flow_train_score, flow_test_score, flow_ood_scores, flow_metrics)
     
 
     print("====="*5 + " Training KD Tree " + "====="*5)

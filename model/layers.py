@@ -1,6 +1,6 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
-from tensorflow_addons.layers import InstanceNormalization
+# from tensorflow_addons.layers import InstanceNormalization
 import configs
 
 
