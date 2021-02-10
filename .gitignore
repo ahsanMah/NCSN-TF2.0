@@ -1,4 +1,7 @@
+**/checkpoints/*
+
 ### Pickle/Numpy files ###
+*.npy
 *.npz
 *.p
 
